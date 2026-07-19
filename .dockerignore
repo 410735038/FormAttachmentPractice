@@ -1,0 +1,9 @@
+**/node_modules
+**/dist
+**/target
+**/.idea
+**/.vscode
+**/.DS_Store
+Attachments/**
+src/backend/form_attachment.db
+src/backend/*.db

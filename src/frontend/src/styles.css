@@ -1,0 +1,190 @@
+@import 'ag-grid-community/styles/ag-grid.css';
+@import 'ag-grid-community/styles/ag-theme-quartz.css';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #1f2937;
+  background: #f5f7fb;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+button {
+  font: inherit;
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  background: #f5f7fb;
+}
+
+.sidebar {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 26px 22px;
+  border-right: 1px solid #d9e2ec;
+  background: #ffffff;
+}
+
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
+  background: #0f766e;
+  color: #ffffff;
+  font-weight: 800;
+}
+
+.sidebar h1 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.2;
+  font-weight: 750;
+}
+
+.sidebar p {
+  margin: 6px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.workspace {
+  min-width: 0;
+}
+
+.topbar {
+  height: 86px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 0 28px;
+  border-bottom: 1px solid #d9e2ec;
+  background: #ffffff;
+}
+
+.eyeline {
+  color: #0f766e;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.topbar h2 {
+  margin: 4px 0 0;
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+.toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.content-zone {
+  padding: 24px 28px;
+}
+
+.table-panel {
+  width: 100%;
+  min-height: 240px;
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.detail-grid {
+  height: calc(100vh - 180px);
+}
+
+.detail-grid .ag-root-wrapper {
+  height: 100%;
+}
+
+.detail-meta {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  margin-bottom: 12px;
+  color: #475569;
+  font-size: 13px;
+}
+
+.link-button {
+  border: 0;
+  padding: 0;
+  color: #0f766e;
+  background: transparent;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.link-button:hover {
+  text-decoration: underline;
+}
+
+.loading-state {
+  display: grid;
+  place-items: center;
+  height: 260px;
+}
+
+.attachment-grid {
+  margin-top: 16px;
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.ag-theme-quartz {
+  --ag-font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --ag-header-background-color: #f8fafc;
+  --ag-header-foreground-color: #334155;
+  --ag-border-color: #d9e2ec;
+  --ag-row-hover-color: #f0fdfa;
+  --ag-selected-row-background-color: #ccfbf1;
+  --ag-wrapper-border-radius: 0;
+}
+
+@media (max-width: 860px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    min-height: 78px;
+    border-right: 0;
+    border-bottom: 1px solid #d9e2ec;
+  }
+
+  .topbar {
+    height: auto;
+    min-height: 88px;
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 18px;
+  }
+
+  .content-zone {
+    padding: 16px;
+  }
+}
