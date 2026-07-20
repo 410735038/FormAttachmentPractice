@@ -4,6 +4,7 @@ import java.util.List;
 
 public record FormRowDto(
         String id,
+        String tabId,
         String attId,
         String field1,
         String field2,

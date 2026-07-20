@@ -21,6 +21,7 @@ export type AttachmentItem = {
 
 export type FormRow = {
   id: string;
+  tabId: string;
   attId?: string;
   field1: string;
   field2: string;
@@ -35,12 +36,18 @@ export type FormRow = {
   attachments: AttachmentItem[];
 };
 
-export type FormDetail = FormSummary & {
+export type FormTab = {
+  id: string;
+  name: string;
   rows: FormRow[];
+};
+
+export type FormDetail = FormSummary & {
+  tabs: FormTab[];
 };
 
 export type SaveFormPayload = {
   id: string;
-  rows: FormRow[];
+  tabs: FormTab[];
   deletedAttachmentIds: number[];
 };

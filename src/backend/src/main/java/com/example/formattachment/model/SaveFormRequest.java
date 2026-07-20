@@ -4,7 +4,7 @@ import java.util.List;
 
 public record SaveFormRequest(
         String id,
-        List<FormRowDto> rows,
+        List<FormTabDto> tabs,
         List<Long> deletedAttachmentIds
 ) {
 }

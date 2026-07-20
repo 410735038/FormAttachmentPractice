@@ -7,6 +7,6 @@ public record FormDetailDto(
         String formNo,
         String latestUpdater,
         String updatedAt,
-        List<FormRowDto> rows
+        List<FormTabDto> tabs
 ) {
 }

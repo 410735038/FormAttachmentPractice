@@ -4,6 +4,7 @@ import com.example.formattachment.model.AttachmentDto;
 import com.example.formattachment.model.FormDetailDto;
 import com.example.formattachment.model.FormRowDto;
 import com.example.formattachment.model.FormSummaryDto;
+import com.example.formattachment.model.FormTabDto;
 import com.example.formattachment.model.SaveFormRequest;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
@@ -17,7 +18,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -48,9 +48,19 @@ public class FormService {
                 )
                 """);
         jdbcTemplate.execute("""
+                create table if not exists form_tabs (
+                    id text primary key,
+                    form_id text not null,
+                    name text not null,
+                    tab_order integer not null,
+                    foreign key(form_id) references forms(id)
+                )
+                """);
+        jdbcTemplate.execute("""
                 create table if not exists form_rows (
                     id text primary key,
                     form_id text not null,
+                    tab_id text,
                     att_id text,
                     field1 text not null,
                     field2 text not null,
@@ -63,9 +73,11 @@ public class FormService {
                     field9 text not null,
                     field10 text not null,
                     row_order integer not null,
-                    foreign key(form_id) references forms(id)
+                    foreign key(form_id) references forms(id),
+                    foreign key(tab_id) references form_tabs(id)
                 )
                 """);
+        ensureColumn("form_rows", "tab_id", "alter table form_rows add column tab_id text");
         jdbcTemplate.execute("""
                 create table if not exists attachments (
                     id integer primary key autoincrement,
@@ -80,6 +92,7 @@ public class FormService {
                     foreign key(row_id) references form_rows(id)
                 )
                 """);
+        backfillTabsForExistingForms();
     }
 
     public List<FormSummaryDto> listForms() {
@@ -109,25 +122,13 @@ public class FormService {
             throw new IllegalArgumentException("找不到表單");
         }
 
-        List<FormRowDto> rows = jdbcTemplate.query(
-                "select * from form_rows where form_id = ? order by row_order",
-                (rs, rowNum) -> new FormRowDto(
-                        rs.getString("id"),
-                        rs.getString("att_id"),
-                        rs.getString("field1"),
-                        rs.getString("field2"),
-                        rs.getString("field3"),
-                        rs.getString("field4"),
-                        rs.getString("field5"),
-                        rs.getString("field6"),
-                        rs.getString("field7"),
-                        rs.getString("field8"),
-                        rs.getString("field9"),
-                        rs.getString("field10"),
-                        new ArrayList<>()
-                ),
+        List<FormTabDto> emptyTabs = jdbcTemplate.query(
+                "select id, name from form_tabs where form_id = ? order by tab_order",
+                (rs, rowNum) -> new FormTabDto(rs.getString("id"), rs.getString("name"), List.of()),
                 formId
         );
+
+        List<FormRowDto> rows = findRows(formId);
 
         Map<String, List<AttachmentDto>> attachmentsByRow = rows.isEmpty()
                 ? Map.of()
@@ -157,6 +158,7 @@ public class FormService {
         List<FormRowDto> mergedRows = rows.stream()
                 .map(row -> new FormRowDto(
                         row.id(),
+                        row.tabId(),
                         row.attId(),
                         row.field1(),
                         row.field2(),
@@ -172,7 +174,14 @@ public class FormService {
                 ))
                 .toList();
 
-        return new FormDetailDto(summary.id(), summary.formNo(), summary.latestUpdater(), summary.updatedAt(), mergedRows);
+        Map<String, List<FormRowDto>> rowsByTab = mergedRows.stream()
+                .collect(Collectors.groupingBy(FormRowDto::tabId));
+
+        List<FormTabDto> tabs = emptyTabs.stream()
+                .map(tab -> new FormTabDto(tab.id(), tab.name(), rowsByTab.getOrDefault(tab.id(), List.of())))
+                .toList();
+
+        return new FormDetailDto(summary.id(), summary.formNo(), summary.latestUpdater(), summary.updatedAt(), tabs);
     }
 
     @Transactional
@@ -185,42 +194,50 @@ public class FormService {
             deleteAttachment(attachmentId);
         }
 
-        for (int i = 0; i < request.rows().size(); i++) {
-            FormRowDto row = request.rows().get(i);
-            jdbcTemplate.update("""
-                    update form_rows
-                    set att_id = ?, field1 = ?, field2 = ?, field3 = ?, field4 = ?, field5 = ?,
-                        field6 = ?, field7 = ?, field8 = ?, field9 = ?, field10 = ?, row_order = ?
-                    where id = ? and form_id = ?
-                    """,
-                    row.attId(),
-                    row.field1(),
-                    row.field2(),
-                    row.field3(),
-                    row.field4(),
-                    row.field5(),
-                    row.field6(),
-                    row.field7(),
-                    row.field8(),
-                    row.field9(),
-                    row.field10(),
-                    i,
-                    row.id(),
-                    formId
-            );
+        List<FormTabDto> tabs = request.tabs() == null ? List.of() : request.tabs();
+        for (int tabIndex = 0; tabIndex < tabs.size(); tabIndex++) {
+            FormTabDto tab = tabs.get(tabIndex);
+            jdbcTemplate.update("update form_tabs set name = ?, tab_order = ? where id = ? and form_id = ?",
+                    tab.name(), tabIndex, tab.id(), formId);
 
-            for (AttachmentDto attachment : row.attachments()) {
-                if (!"pendingUpload".equals(attachment.status())) {
-                    continue;
+            for (int rowIndex = 0; rowIndex < tab.rows().size(); rowIndex++) {
+                FormRowDto row = tab.rows().get(rowIndex);
+                jdbcTemplate.update("""
+                        update form_rows
+                        set tab_id = ?, att_id = ?, field1 = ?, field2 = ?, field3 = ?, field4 = ?, field5 = ?,
+                            field6 = ?, field7 = ?, field8 = ?, field9 = ?, field10 = ?, row_order = ?
+                        where id = ? and form_id = ?
+                        """,
+                        tab.id(),
+                        row.attId(),
+                        row.field1(),
+                        row.field2(),
+                        row.field3(),
+                        row.field4(),
+                        row.field5(),
+                        row.field6(),
+                        row.field7(),
+                        row.field8(),
+                        row.field9(),
+                        row.field10(),
+                        rowIndex,
+                        row.id(),
+                        formId
+                );
+
+                for (AttachmentDto attachment : row.attachments()) {
+                    if (!"pendingUpload".equals(attachment.status())) {
+                        continue;
+                    }
+                    if (!pendingFiles.hasNext()) {
+                        throw new IllegalArgumentException("附件 payload 與檔案數量不一致");
+                    }
+                    MultipartFile file = pendingFiles.next();
+                    String attId = attachment.attId() == null || attachment.attId().isBlank()
+                            ? "att-" + UUID.randomUUID()
+                            : attachment.attId();
+                    saveAttachmentFile(row.id(), attId, file, now);
                 }
-                if (!pendingFiles.hasNext()) {
-                    throw new IllegalArgumentException("附件 payload 與檔案數量不一致");
-                }
-                MultipartFile file = pendingFiles.next();
-                String attId = attachment.attId() == null || attachment.attId().isBlank()
-                        ? "att-" + UUID.randomUUID()
-                        : attachment.attId();
-                saveAttachmentFile(row.id(), attId, file, now);
             }
         }
 
@@ -262,26 +279,136 @@ public class FormService {
                     now
             );
             for (int rowIndex = 1; rowIndex <= 8; rowIndex++) {
-                jdbcTemplate.update("""
-                        insert into form_rows(id, form_id, att_id, field1, field2, field3, field4, field5,
-                        field6, field7, field8, field9, field10, row_order)
-                        values (?, ?, null, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        formId + "-row-" + rowIndex,
-                        formId,
-                        "資料 " + rowIndex + "-1",
-                        "資料 " + rowIndex + "-2",
-                        "資料 " + rowIndex + "-3",
-                        "資料 " + rowIndex + "-4",
-                        "資料 " + rowIndex + "-5",
-                        "資料 " + rowIndex + "-6",
-                        "資料 " + rowIndex + "-7",
-                        "資料 " + rowIndex + "-8",
-                        "資料 " + rowIndex + "-9",
-                        "資料 " + rowIndex + "-10",
-                        rowIndex
-                );
+                for (int tabIndex = 1; tabIndex <= 3; tabIndex++) {
+                    String tabId = formId + "-tab-" + tabIndex;
+                    if (rowIndex == 1) {
+                        jdbcTemplate.update(
+                                "insert into form_tabs(id, form_id, name, tab_order) values (?, ?, ?, ?)",
+                                tabId,
+                                formId,
+                                "分頁" + tabIndex,
+                                tabIndex
+                        );
+                    }
+                    jdbcTemplate.update("""
+                            insert into form_rows(id, form_id, tab_id, att_id, field1, field2, field3, field4, field5,
+                            field6, field7, field8, field9, field10, row_order)
+                            values (?, ?, ?, null, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            formId + "-tab-" + tabIndex + "-row-" + rowIndex,
+                            formId,
+                            tabId,
+                            "資料 " + tabIndex + "-" + rowIndex + "-1",
+                            "資料 " + tabIndex + "-" + rowIndex + "-2",
+                            "資料 " + tabIndex + "-" + rowIndex + "-3",
+                            "資料 " + tabIndex + "-" + rowIndex + "-4",
+                            "資料 " + tabIndex + "-" + rowIndex + "-5",
+                            "資料 " + tabIndex + "-" + rowIndex + "-6",
+                            "資料 " + tabIndex + "-" + rowIndex + "-7",
+                            "資料 " + tabIndex + "-" + rowIndex + "-8",
+                            "資料 " + tabIndex + "-" + rowIndex + "-9",
+                            "資料 " + tabIndex + "-" + rowIndex + "-10",
+                            rowIndex
+                    );
+                }
             }
+        }
+    }
+
+    private List<FormRowDto> findRows(String formId) {
+        return jdbcTemplate.query(
+                "select * from form_rows where form_id = ? order by tab_id, row_order",
+                (rs, rowNum) -> new FormRowDto(
+                        rs.getString("id"),
+                        rs.getString("tab_id"),
+                        rs.getString("att_id"),
+                        rs.getString("field1"),
+                        rs.getString("field2"),
+                        rs.getString("field3"),
+                        rs.getString("field4"),
+                        rs.getString("field5"),
+                        rs.getString("field6"),
+                        rs.getString("field7"),
+                        rs.getString("field8"),
+                        rs.getString("field9"),
+                        rs.getString("field10"),
+                        List.of()
+                ),
+                formId
+        );
+    }
+
+    private void ensureColumn(String tableName, String columnName, String alterSql) {
+        Boolean exists = jdbcTemplate.query(
+                "pragma table_info(" + tableName + ")",
+                rs -> {
+                    while (rs.next()) {
+                        if (columnName.equals(rs.getString("name"))) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+        );
+        if (!Boolean.TRUE.equals(exists)) {
+            jdbcTemplate.execute(alterSql);
+        }
+    }
+
+    private void backfillTabsForExistingForms() {
+        List<FormSummaryDto> forms = listForms();
+        for (FormSummaryDto form : forms) {
+            for (int tabIndex = 1; tabIndex <= 3; tabIndex++) {
+                String tabId = form.id() + "-tab-" + tabIndex;
+                jdbcTemplate.update(
+                        "insert or ignore into form_tabs(id, form_id, name, tab_order) values (?, ?, ?, ?)",
+                        tabId,
+                        form.id(),
+                        "分頁" + tabIndex,
+                        tabIndex
+                );
+                ensureTestRows(form.id(), tabId, tabIndex);
+            }
+            jdbcTemplate.update(
+                    "update form_rows set tab_id = ? where form_id = ? and tab_id is null",
+                    form.id() + "-tab-1",
+                    form.id()
+            );
+        }
+    }
+
+    private void ensureTestRows(String formId, String tabId, int tabIndex) {
+        Integer rowCount = jdbcTemplate.queryForObject(
+                "select count(*) from form_rows where form_id = ? and tab_id = ?",
+                Integer.class,
+                formId,
+                tabId
+        );
+        if (rowCount != null && rowCount > 0) {
+            return;
+        }
+
+        for (int rowIndex = 1; rowIndex <= 8; rowIndex++) {
+            jdbcTemplate.update("""
+                    insert or ignore into form_rows(id, form_id, tab_id, att_id, field1, field2, field3, field4, field5,
+                    field6, field7, field8, field9, field10, row_order)
+                    values (?, ?, ?, null, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    formId + "-tab-" + tabIndex + "-row-" + rowIndex,
+                    formId,
+                    tabId,
+                    "資料 " + tabIndex + "-" + rowIndex + "-1",
+                    "資料 " + tabIndex + "-" + rowIndex + "-2",
+                    "資料 " + tabIndex + "-" + rowIndex + "-3",
+                    "資料 " + tabIndex + "-" + rowIndex + "-4",
+                    "資料 " + tabIndex + "-" + rowIndex + "-5",
+                    "資料 " + tabIndex + "-" + rowIndex + "-6",
+                    "資料 " + tabIndex + "-" + rowIndex + "-7",
+                    "資料 " + tabIndex + "-" + rowIndex + "-8",
+                    "資料 " + tabIndex + "-" + rowIndex + "-9",
+                    "資料 " + tabIndex + "-" + rowIndex + "-10",
+                    rowIndex
+            );
         }
     }
 

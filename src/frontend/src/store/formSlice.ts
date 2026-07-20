@@ -36,8 +36,9 @@ export const commitForm = createAsyncThunk(
     saveForm(
       {
         id: payload.id,
-        rows: payload.rows,
-        deletedAttachmentIds: payload.rows
+        tabs: payload.tabs,
+        deletedAttachmentIds: payload.tabs
+          .flatMap((tab) => tab.rows)
           .flatMap((row) => row.attachments)
           .filter((attachment) => attachment.status === 'pendingDelete' && attachment.id)
           .map((attachment) => attachment.id as number),
@@ -70,6 +71,10 @@ function makePendingAttachment(file: PendingFileInput, attId: string): Attachmen
   };
 }
 
+function findRow(current: FormDetail | undefined, tabId: string, rowId: string) {
+  return current?.tabs.find((tab) => tab.id === tabId)?.rows.find((row) => row.id === rowId);
+}
+
 const formSlice = createSlice({
   name: 'forms',
   initialState,
@@ -81,18 +86,18 @@ const formSlice = createSlice({
     },
     updateCell(
       state,
-      action: PayloadAction<{ rowId: string; field: keyof Pick<FormRow, 'field1' | 'field2' | 'field3' | 'field4' | 'field5' | 'field6' | 'field7' | 'field8' | 'field9' | 'field10'>; value: string }>,
+      action: PayloadAction<{ tabId: string; rowId: string; field: keyof Pick<FormRow, 'field1' | 'field2' | 'field3' | 'field4' | 'field5' | 'field6' | 'field7' | 'field8' | 'field9' | 'field10'>; value: string }>,
     ) {
-      const row = state.current?.rows.find((item) => item.id === action.payload.rowId);
+      const row = findRow(state.current, action.payload.tabId, action.payload.rowId);
       if (row) {
         row[action.payload.field] = action.payload.value;
       }
     },
     addPendingAttachments(
       state,
-      action: PayloadAction<{ rowId: string; files: PendingFileInput[] }>,
+      action: PayloadAction<{ tabId: string; rowId: string; files: PendingFileInput[] }>,
     ) {
-      const row = state.current?.rows.find((item) => item.id === action.payload.rowId);
+      const row = findRow(state.current, action.payload.tabId, action.payload.rowId);
       if (!row) return;
 
       const validFiles = action.payload.files
@@ -112,8 +117,8 @@ const formSlice = createSlice({
         })),
       );
     },
-    markAttachmentDelete(state, action: PayloadAction<{ rowId: string; attachmentKey: string }>) {
-      const row = state.current?.rows.find((item) => item.id === action.payload.rowId);
+    markAttachmentDelete(state, action: PayloadAction<{ tabId: string; rowId: string; attachmentKey: string }>) {
+      const row = findRow(state.current, action.payload.tabId, action.payload.rowId);
       const attachment = row?.attachments.find(
         (item) => String(item.id ?? item.tempId) === action.payload.attachmentKey,
       );
@@ -127,8 +132,8 @@ const formSlice = createSlice({
       }
       attachment.status = 'pendingDelete';
     },
-    undoAttachmentDelete(state, action: PayloadAction<{ rowId: string; attachmentKey: string }>) {
-      const row = state.current?.rows.find((item) => item.id === action.payload.rowId);
+    undoAttachmentDelete(state, action: PayloadAction<{ tabId: string; rowId: string; attachmentKey: string }>) {
+      const row = findRow(state.current, action.payload.tabId, action.payload.rowId);
       const attachment = row?.attachments.find(
         (item) => String(item.id ?? item.tempId) === action.payload.attachmentKey,
       );

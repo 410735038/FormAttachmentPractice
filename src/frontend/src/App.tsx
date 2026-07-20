@@ -78,7 +78,8 @@ export default function App() {
 
   const saveCurrent = async () => {
     if (!current) return;
-    const tempKeys = current.rows
+    const tempKeys = current.tabs
+      .flatMap((tab) => tab.rows)
       .flatMap((row) => row.attachments)
       .filter((attachment) => attachment.status === 'pendingUpload' && attachment.tempId)
       .map((attachment) => attachment.tempId as string);

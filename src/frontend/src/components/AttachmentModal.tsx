@@ -13,12 +13,13 @@ import type { AttachmentItem, FormRow } from '../types/forms';
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 type Props = {
+  tabId: string;
   row: FormRow;
   open: boolean;
   onClose: () => void;
 };
 
-export default function AttachmentModal({ row, open, onClose }: Props) {
+export default function AttachmentModal({ tabId, row, open, onClose }: Props) {
   const dispatch = useAppDispatch();
   const { putFiles, getFile, removeFile } = useAttachmentFiles();
   const [messageApi, contextHolder] = message.useMessage();
@@ -78,7 +79,7 @@ export default function AttachmentModal({ row, open, onClose }: Props) {
                 <Button
                   size="small"
                   icon={<RollbackOutlined />}
-                  onClick={() => dispatch(undoAttachmentDelete({ rowId: row.id, attachmentKey: key }))}
+                  onClick={() => dispatch(undoAttachmentDelete({ tabId, rowId: row.id, attachmentKey: key }))}
                 >
                   取消刪除
                 </Button>
@@ -91,7 +92,7 @@ export default function AttachmentModal({ row, open, onClose }: Props) {
                     if (attachment.status === 'pendingUpload' && attachment.tempId) {
                       removeFile(attachment.tempId);
                     }
-                    dispatch(markAttachmentDelete({ rowId: row.id, attachmentKey: key }));
+                    dispatch(markAttachmentDelete({ tabId, rowId: row.id, attachmentKey: key }));
                   }}
                 />
               )}
@@ -100,7 +101,7 @@ export default function AttachmentModal({ row, open, onClose }: Props) {
         },
       },
     ],
-    [dispatch, downloadAttachment, removeFile, row.id],
+    [dispatch, downloadAttachment, removeFile, row.id, tabId],
   );
 
   return (
@@ -117,6 +118,7 @@ export default function AttachmentModal({ row, open, onClose }: Props) {
           const stored = putFiles([file]);
           dispatch(
             addPendingAttachments({
+              tabId,
               rowId: row.id,
               files: stored.map(({ tempKey, file }) => ({
                 tempKey,
