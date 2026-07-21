@@ -129,6 +129,12 @@ button {
   font-size: 13px;
 }
 
+.grid-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin: -4px 0 12px;
+}
+
 .link-button {
   border: 0;
   padding: 0;

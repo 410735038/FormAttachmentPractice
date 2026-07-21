@@ -2,17 +2,19 @@ import { useEffect, useMemo, useState } from 'react';
 import { Button, Modal, Spin, message } from 'antd';
 import { ArrowLeftOutlined, DatabaseOutlined, SaveOutlined } from '@ant-design/icons';
 import {
+  attachmentGroupKeyForRow,
   clearCurrentForm,
   commitForm,
   createSeedData,
   loadFormDetail,
   loadForms,
 } from './store/formSlice';
+import { createAttachmentGroup } from './services/api';
 import { useAppDispatch, useAppSelector } from './store/hooks';
 import { useAttachmentFiles } from './store/useAttachmentFiles';
 import FormList from './components/FormList';
 import FormDetailGrid from './components/FormDetailGrid';
-import type { FormSummary } from './types/forms';
+import type { AttachmentItem, FormDetail, FormSummary } from './types/forms';
 
 function hasUnsavedChanges(current: unknown, original: unknown) {
   return JSON.stringify(current) !== JSON.stringify(original);
@@ -21,12 +23,19 @@ function hasUnsavedChanges(current: unknown, original: unknown) {
 export default function App() {
   const dispatch = useAppDispatch();
   const { collectFiles, clearFiles } = useAttachmentFiles();
-  const { summaries, current, original, loading, saving, error } = useAppSelector((state) => state.forms);
+  const { summaries, current, original, attachmentsByGroupKey, loading, saving, error } = useAppSelector((state) => state.forms);
   const [messageApi, contextHolder] = message.useMessage();
   const [modalApi, modalHolder] = Modal.useModal();
   const [selectedFormId, setSelectedFormId] = useState<string>();
 
-  const dirty = useMemo(() => Boolean(current && original && hasUnsavedChanges(current, original)), [current, original]);
+  const dirty = useMemo(
+    () =>
+      Boolean(current && original && hasUnsavedChanges(current, original)) ||
+      Object.values(attachmentsByGroupKey).some((attachments) =>
+        attachments.some((attachment) => attachment.status !== 'persisted'),
+      ),
+    [attachmentsByGroupKey, current, original],
+  );
 
   useEffect(() => {
     dispatch(loadForms());
@@ -78,14 +87,49 @@ export default function App() {
 
   const saveCurrent = async () => {
     if (!current) return;
-    const tempKeys = current.tabs
-      .flatMap((tab) => tab.rows)
-      .flatMap((row) => row.attachments)
-      .filter((attachment) => attachment.status === 'pendingUpload' && attachment.tempId)
-      .map((attachment) => attachment.tempId as string);
 
     try {
-      const result = await dispatch(commitForm({ payload: current, files: collectFiles(tempKeys) })).unwrap();
+      const payload: FormDetail = structuredClone(current);
+      const pendingUploads: AttachmentItem[] = [];
+      const deletedAttachmentIds: number[] = [];
+
+      for (const tab of payload.tabs) {
+        for (const row of tab.rows) {
+          const originalGroupKey = attachmentGroupKeyForRow(row);
+          let finalAttachmentId = row.attachmentId;
+          const attachments = attachmentsByGroupKey[originalGroupKey] ?? [];
+          const hasPendingUpload = attachments.some((attachment) => attachment.status === 'pendingUpload');
+
+          if (!finalAttachmentId && hasPendingUpload) {
+            finalAttachmentId = (await createAttachmentGroup()).attachmentId;
+            row.attachmentId = finalAttachmentId;
+          }
+
+          if (!finalAttachmentId) continue;
+
+          for (const attachment of attachments) {
+            if (attachment.status === 'pendingUpload') {
+              pendingUploads.push({ ...attachment, attachmentId: finalAttachmentId });
+            }
+            if (attachment.status === 'pendingDelete' && attachment.id) {
+              deletedAttachmentIds.push(attachment.id);
+            }
+          }
+        }
+      }
+
+      const tempKeys = pendingUploads
+        .filter((attachment) => attachment.tempId)
+        .map((attachment) => attachment.tempId as string);
+
+      const result = await dispatch(
+        commitForm({
+          payload,
+          files: collectFiles(tempKeys),
+          pendingUploads,
+          deletedAttachmentIds,
+        }),
+      ).unwrap();
       clearFiles();
       setSelectedFormId(result.id);
       await dispatch(loadForms());

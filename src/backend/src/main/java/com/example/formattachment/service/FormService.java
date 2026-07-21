@@ -1,6 +1,7 @@
 package com.example.formattachment.service;
 
 import com.example.formattachment.model.AttachmentDto;
+import com.example.formattachment.model.AttachmentGroupDto;
 import com.example.formattachment.model.FormDetailDto;
 import com.example.formattachment.model.FormRowDto;
 import com.example.formattachment.model.FormSummaryDto;
@@ -129,52 +130,7 @@ public class FormService {
         );
 
         List<FormRowDto> rows = findRows(formId);
-
-        Map<String, List<AttachmentDto>> attachmentsByRow = rows.isEmpty()
-                ? Map.of()
-                : jdbcTemplate.query(
-                        "select * from attachments where row_id in (%s) order by uploaded_at"
-                                .formatted(rows.stream().map(row -> "?").collect(Collectors.joining(","))),
-                        (rs, rowNum) -> new AttachmentRow(
-                                rs.getString("row_id"),
-                                new AttachmentDto(
-                                        rs.getLong("id"),
-                                        null,
-                                        rs.getString("att_id"),
-                                        rs.getString("file_name"),
-                                        rs.getLong("size"),
-                                        rs.getString("content_type"),
-                                        rs.getString("uploaded_at"),
-                                        rs.getString("uploader"),
-                                        "persisted"
-                                )
-                        ),
-                        rows.stream().map(FormRowDto::id).toArray()
-                ).stream().collect(Collectors.groupingBy(
-                        AttachmentRow::rowId,
-                        Collectors.mapping(AttachmentRow::attachment, Collectors.toList())
-                ));
-
-        List<FormRowDto> mergedRows = rows.stream()
-                .map(row -> new FormRowDto(
-                        row.id(),
-                        row.tabId(),
-                        row.attId(),
-                        row.field1(),
-                        row.field2(),
-                        row.field3(),
-                        row.field4(),
-                        row.field5(),
-                        row.field6(),
-                        row.field7(),
-                        row.field8(),
-                        row.field9(),
-                        row.field10(),
-                        attachmentsByRow.getOrDefault(row.id(), List.of())
-                ))
-                .toList();
-
-        Map<String, List<FormRowDto>> rowsByTab = mergedRows.stream()
+        Map<String, List<FormRowDto>> rowsByTab = rows.stream()
                 .collect(Collectors.groupingBy(FormRowDto::tabId));
 
         List<FormTabDto> tabs = emptyTabs.stream()
@@ -202,43 +158,29 @@ public class FormService {
 
             for (int rowIndex = 0; rowIndex < tab.rows().size(); rowIndex++) {
                 FormRowDto row = tab.rows().get(rowIndex);
-                jdbcTemplate.update("""
-                        update form_rows
-                        set tab_id = ?, att_id = ?, field1 = ?, field2 = ?, field3 = ?, field4 = ?, field5 = ?,
-                            field6 = ?, field7 = ?, field8 = ?, field9 = ?, field10 = ?, row_order = ?
-                        where id = ? and form_id = ?
-                        """,
-                        tab.id(),
-                        row.attId(),
-                        row.field1(),
-                        row.field2(),
-                        row.field3(),
-                        row.field4(),
-                        row.field5(),
-                        row.field6(),
-                        row.field7(),
-                        row.field8(),
-                        row.field9(),
-                        row.field10(),
-                        rowIndex,
-                        row.id(),
-                        formId
-                );
-
-                for (AttachmentDto attachment : row.attachments()) {
-                    if (!"pendingUpload".equals(attachment.status())) {
-                        continue;
-                    }
-                    if (!pendingFiles.hasNext()) {
-                        throw new IllegalArgumentException("附件 payload 與檔案數量不一致");
-                    }
-                    MultipartFile file = pendingFiles.next();
-                    String attId = attachment.attId() == null || attachment.attId().isBlank()
-                            ? "att-" + UUID.randomUUID()
-                            : attachment.attId();
-                    saveAttachmentFile(row.id(), attId, file, now);
+                if (isPendingCreate(row)) {
+                    insertRow(formId, tab.id(), row, rowIndex);
+                } else {
+                    updateRow(formId, tab.id(), row, rowIndex);
                 }
             }
+        }
+
+        List<AttachmentDto> pendingUploads = request.pendingUploads() == null ? List.of() : request.pendingUploads();
+        for (AttachmentDto attachment : pendingUploads) {
+            if (!"pendingUpload".equals(attachment.status())) {
+                continue;
+            }
+            if (!pendingFiles.hasNext()) {
+                throw new IllegalArgumentException("附件 payload 與檔案數量不一致");
+            }
+            MultipartFile file = pendingFiles.next();
+            String attachmentId = attachment.attachmentId();
+            if (attachmentId == null || attachmentId.isBlank()) {
+                throw new IllegalArgumentException("attachmentId 不可為空");
+            }
+            String rowId = findRowIdByAttachmentId(formId, attachmentId);
+            saveAttachmentFile(rowId, attachmentId, file, now);
         }
 
         jdbcTemplate.update("update forms set latest_updater = ?, updated_at = ? where id = ?", CURRENT_USER, now, formId);
@@ -259,6 +201,28 @@ public class FormService {
                             rs.getString("content_type")
                     );
                 },
+                attachmentId
+        );
+    }
+
+    public AttachmentGroupDto createAttachmentGroup() {
+        return new AttachmentGroupDto("att-" + UUID.randomUUID());
+    }
+
+    public List<AttachmentDto> listAttachments(String attachmentId) {
+        return jdbcTemplate.query(
+                "select * from attachments where att_id = ? order by uploaded_at",
+                (rs, rowNum) -> new AttachmentDto(
+                        rs.getLong("id"),
+                        null,
+                        rs.getString("att_id"),
+                        rs.getString("file_name"),
+                        rs.getLong("size"),
+                        rs.getString("content_type"),
+                        rs.getString("uploaded_at"),
+                        rs.getString("uploader"),
+                        "persisted"
+                ),
                 attachmentId
         );
     }
@@ -321,6 +285,7 @@ public class FormService {
                 (rs, rowNum) -> new FormRowDto(
                         rs.getString("id"),
                         rs.getString("tab_id"),
+                        "persisted",
                         rs.getString("att_id"),
                         rs.getString("field1"),
                         rs.getString("field2"),
@@ -331,9 +296,62 @@ public class FormService {
                         rs.getString("field7"),
                         rs.getString("field8"),
                         rs.getString("field9"),
-                        rs.getString("field10"),
-                        List.of()
+                        rs.getString("field10")
                 ),
+                formId
+        );
+    }
+
+    private boolean isPendingCreate(FormRowDto row) {
+        return "pendingCreate".equals(row.status()) || row.id().startsWith("tmp-row-");
+    }
+
+    private void insertRow(String formId, String tabId, FormRowDto row, int rowOrder) {
+        String rowId = tabId + "-row-" + UUID.randomUUID();
+        jdbcTemplate.update("""
+                insert into form_rows(id, form_id, tab_id, att_id, field1, field2, field3, field4, field5,
+                field6, field7, field8, field9, field10, row_order)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                rowId,
+                formId,
+                tabId,
+                row.attachmentId(),
+                row.field1(),
+                row.field2(),
+                row.field3(),
+                row.field4(),
+                row.field5(),
+                row.field6(),
+                row.field7(),
+                row.field8(),
+                row.field9(),
+                row.field10(),
+                rowOrder
+        );
+    }
+
+    private void updateRow(String formId, String tabId, FormRowDto row, int rowOrder) {
+        jdbcTemplate.update("""
+                update form_rows
+                set tab_id = ?, att_id = ?, field1 = ?, field2 = ?, field3 = ?, field4 = ?, field5 = ?,
+                    field6 = ?, field7 = ?, field8 = ?, field9 = ?, field10 = ?, row_order = ?
+                where id = ? and form_id = ?
+                """,
+                tabId,
+                row.attachmentId(),
+                row.field1(),
+                row.field2(),
+                row.field3(),
+                row.field4(),
+                row.field5(),
+                row.field6(),
+                row.field7(),
+                row.field8(),
+                row.field9(),
+                row.field10(),
+                rowOrder,
+                row.id(),
                 formId
         );
     }
@@ -440,6 +458,15 @@ public class FormService {
         );
     }
 
+    private String findRowIdByAttachmentId(String formId, String attachmentId) {
+        return jdbcTemplate.queryForObject(
+                "select id from form_rows where form_id = ? and att_id = ? limit 1",
+                String.class,
+                formId,
+                attachmentId
+        );
+    }
+
     private void deleteAttachment(Long attachmentId) throws IOException {
         AttachmentResource resource = getAttachment(attachmentId);
         Files.deleteIfExists(resource.path());
@@ -449,6 +476,4 @@ public class FormService {
     public record AttachmentResource(Path path, String fileName, String contentType) {
     }
 
-    private record AttachmentRow(String rowId, AttachmentDto attachment) {
-    }
 }

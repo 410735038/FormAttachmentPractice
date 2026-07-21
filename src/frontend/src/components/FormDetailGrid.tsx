@@ -2,8 +2,8 @@ import { useMemo, useState } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import type { CellValueChangedEvent, ColDef, ICellRendererParams } from 'ag-grid-community';
 import { Badge, Button, Tabs } from 'antd';
-import { PaperClipOutlined } from '@ant-design/icons';
-import { updateCell } from '../store/formSlice';
+import { PlusOutlined, PaperClipOutlined } from '@ant-design/icons';
+import { addDraftRow, attachmentGroupKeyForRow, updateCell } from '../store/formSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import type { FormRow, FormTab } from '../types/forms';
 import AttachmentModal from './AttachmentModal';
@@ -13,6 +13,7 @@ const fieldKeys = Array.from({ length: 10 }, (_, index) => `field${index + 1}` a
 export default function FormDetailGrid() {
   const dispatch = useAppDispatch();
   const tabs = useAppSelector((state) => state.forms.current?.tabs ?? []);
+  const attachmentsByGroupKey = useAppSelector((state) => state.forms.attachmentsByGroupKey);
   const [activeTabId, setActiveTabId] = useState<string>();
   const [activeAttachment, setActiveAttachment] = useState<{ tabId: string; rowId: string }>();
 
@@ -30,14 +31,18 @@ export default function FormDetailGrid() {
         minWidth: 130,
       })),
       {
-        field: 'attachments',
+        field: 'attachmentId',
         headerName: '附件',
         minWidth: 190,
         pinned: 'right',
         editable: false,
         cellRenderer: (params: ICellRendererParams<FormRow>) => {
-          const count =
-            params.data?.attachments.filter((attachment) => attachment.status !== 'pendingDelete').length ?? 0;
+          if (!params.data) return null;
+          const groupKey = attachmentGroupKeyForRow(params.data);
+          const localCount =
+            attachmentsByGroupKey[groupKey]?.filter((attachment) => attachment.status !== 'pendingDelete').length ?? 0;
+          const hasSavedGroup = Boolean(params.data.attachmentId);
+          const count = localCount || (hasSavedGroup ? 1 : 0);
           return (
             <Button
               size="small"
@@ -50,11 +55,11 @@ export default function FormDetailGrid() {
         },
       },
     ],
-    [],
+    [attachmentsByGroupKey],
   );
 
   const onCellValueChanged = (event: CellValueChangedEvent<FormRow>) => {
-    if (!event.data || event.colDef.field === 'attachments') return;
+    if (!event.data || event.colDef.field === 'attachmentId') return;
     dispatch(
       updateCell({
         tabId: event.data.tabId,
@@ -80,23 +85,29 @@ export default function FormDetailGrid() {
           key: tab.id,
           label: tab.name,
           children: (
-            <div className="table-panel detail-grid ag-theme-quartz">
-              <AgGridReact<FormRow>
-                theme="legacy"
-                rowData={tab.rows}
-                columnDefs={columnDefs}
-                defaultColDef={{ resizable: true, sortable: true, filter: true }}
-                onCellValueChanged={onCellValueChanged}
-                singleClickEdit
-                stopEditingWhenCellsLoseFocus
-              />
-            </div>
+            <>
+              <div className="grid-actions">
+                <Button icon={<PlusOutlined />} onClick={() => dispatch(addDraftRow({ tabId: tab.id }))}>
+                  新增資料
+                </Button>
+              </div>
+              <div className="table-panel detail-grid ag-theme-quartz">
+                <AgGridReact<FormRow>
+                  theme="legacy"
+                  rowData={tab.rows}
+                  columnDefs={columnDefs}
+                  defaultColDef={{ resizable: true, sortable: true, filter: true }}
+                  onCellValueChanged={onCellValueChanged}
+                  singleClickEdit
+                  stopEditingWhenCellsLoseFocus
+                />
+              </div>
+            </>
           ),
         }))}
       />
       {activeRow && (
         <AttachmentModal
-          tabId={activeRow.tabId}
           row={activeRow}
           open={Boolean(activeRow)}
           onClose={() => setActiveAttachment(undefined)}

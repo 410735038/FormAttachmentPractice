@@ -1,11 +1,10 @@
 package com.example.formattachment.model;
 
-import java.util.List;
-
 public record FormRowDto(
         String id,
         String tabId,
-        String attId,
+        String status,
+        String attachmentId,
         String field1,
         String field2,
         String field3,
@@ -15,7 +14,6 @@ public record FormRowDto(
         String field7,
         String field8,
         String field9,
-        String field10,
-        List<AttachmentDto> attachments
+        String field10
 ) {
 }

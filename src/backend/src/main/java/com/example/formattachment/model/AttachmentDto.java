@@ -3,7 +3,7 @@ package com.example.formattachment.model;
 public record AttachmentDto(
         Long id,
         String tempId,
-        String attId,
+        String attachmentId,
         String fileName,
         long size,
         String contentType,

@@ -1,28 +1,41 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import type { ColDef, ICellRendererParams } from 'ag-grid-community';
 import { Button, Modal, Space, Tag, Upload, message } from 'antd';
 import { DeleteOutlined, DownloadOutlined, InboxOutlined, RollbackOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { attachmentDownloadUrl } from '../services/api';
-import { addPendingAttachments, markAttachmentDelete, undoAttachmentDelete } from '../store/formSlice';
+import {
+  addPendingAttachments,
+  attachmentGroupKeyForRow,
+  loadAttachmentGroup,
+  markAttachmentDelete,
+  undoAttachmentDelete,
+} from '../store/formSlice';
 import { useAttachmentFiles } from '../store/useAttachmentFiles';
-import { useAppDispatch } from '../store/hooks';
+import { useAppDispatch, useAppSelector } from '../store/hooks';
 import type { AttachmentItem, FormRow } from '../types/forms';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 type Props = {
-  tabId: string;
   row: FormRow;
   open: boolean;
   onClose: () => void;
 };
 
-export default function AttachmentModal({ tabId, row, open, onClose }: Props) {
+export default function AttachmentModal({ row, open, onClose }: Props) {
   const dispatch = useAppDispatch();
   const { putFiles, getFile, removeFile } = useAttachmentFiles();
+  const groupKey = attachmentGroupKeyForRow(row);
+  const attachments = useAppSelector((state) => state.forms.attachmentsByGroupKey[groupKey] ?? []);
   const [messageApi, contextHolder] = message.useMessage();
+
+  useEffect(() => {
+    if (open && row.attachmentId && attachments.length === 0) {
+      dispatch(loadAttachmentGroup(row.attachmentId));
+    }
+  }, [attachments.length, dispatch, open, row.attachmentId]);
 
   const downloadAttachment = useCallback((attachment: AttachmentItem) => {
     if (attachment.status === 'pendingUpload' && attachment.tempId) {
@@ -79,7 +92,7 @@ export default function AttachmentModal({ tabId, row, open, onClose }: Props) {
                 <Button
                   size="small"
                   icon={<RollbackOutlined />}
-                  onClick={() => dispatch(undoAttachmentDelete({ tabId, rowId: row.id, attachmentKey: key }))}
+                  onClick={() => dispatch(undoAttachmentDelete({ groupKey, attachmentKey: key }))}
                 >
                   取消刪除
                 </Button>
@@ -92,7 +105,7 @@ export default function AttachmentModal({ tabId, row, open, onClose }: Props) {
                     if (attachment.status === 'pendingUpload' && attachment.tempId) {
                       removeFile(attachment.tempId);
                     }
-                    dispatch(markAttachmentDelete({ tabId, rowId: row.id, attachmentKey: key }));
+                    dispatch(markAttachmentDelete({ groupKey, attachmentKey: key }));
                   }}
                 />
               )}
@@ -101,7 +114,7 @@ export default function AttachmentModal({ tabId, row, open, onClose }: Props) {
         },
       },
     ],
-    [dispatch, downloadAttachment, removeFile, row.id, tabId],
+    [dispatch, downloadAttachment, groupKey, removeFile],
   );
 
   return (
@@ -118,8 +131,7 @@ export default function AttachmentModal({ tabId, row, open, onClose }: Props) {
           const stored = putFiles([file]);
           dispatch(
             addPendingAttachments({
-              tabId,
-              rowId: row.id,
+              groupKey,
               files: stored.map(({ tempKey, file }) => ({
                 tempKey,
                 fileName: file.name,
@@ -139,7 +151,7 @@ export default function AttachmentModal({ tabId, row, open, onClose }: Props) {
       <div className="attachment-grid ag-theme-quartz">
         <AgGridReact<AttachmentItem>
           theme="legacy"
-          rowData={row.attachments}
+          rowData={attachments}
           columnDefs={columnDefs}
           defaultColDef={{ resizable: true, sortable: true }}
           domLayout="autoHeight"

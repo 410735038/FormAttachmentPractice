@@ -10,7 +10,7 @@ export type AttachmentStatus = 'persisted' | 'pendingUpload' | 'pendingDelete';
 export type AttachmentItem = {
   id?: number;
   tempId?: string;
-  attId: string;
+  attachmentId: string;
   fileName: string;
   size: number;
   contentType: string;
@@ -22,7 +22,8 @@ export type AttachmentItem = {
 export type FormRow = {
   id: string;
   tabId: string;
-  attId?: string;
+  status?: 'persisted' | 'pendingCreate';
+  attachmentId?: string;
   field1: string;
   field2: string;
   field3: string;
@@ -33,7 +34,6 @@ export type FormRow = {
   field8: string;
   field9: string;
   field10: string;
-  attachments: AttachmentItem[];
 };
 
 export type FormTab = {
@@ -49,5 +49,10 @@ export type FormDetail = FormSummary & {
 export type SaveFormPayload = {
   id: string;
   tabs: FormTab[];
+  pendingUploads: AttachmentItem[];
   deletedAttachmentIds: number[];
+};
+
+export type AttachmentGroupResponse = {
+  attachmentId: string;
 };

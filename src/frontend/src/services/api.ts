@@ -1,4 +1,4 @@
-import type { FormDetail, FormSummary, SaveFormPayload } from '../types/forms';
+import type { AttachmentGroupResponse, AttachmentItem, FormDetail, FormSummary, SaveFormPayload } from '../types/forms';
 
 const jsonHeaders = { 'Content-Type': 'application/json' };
 
@@ -29,6 +29,19 @@ export async function saveForm(payload: SaveFormPayload, files: File[]): Promise
       body: formData,
     }),
   );
+}
+
+export async function createAttachmentGroup(): Promise<AttachmentGroupResponse> {
+  return parseResponse<AttachmentGroupResponse>(
+    await fetch('/api/attachment-groups', {
+      method: 'POST',
+      headers: jsonHeaders,
+    }),
+  );
+}
+
+export async function fetchAttachmentGroupFiles(attachmentId: string): Promise<AttachmentItem[]> {
+  return parseResponse<AttachmentItem[]>(await fetch(`/api/attachment-groups/${attachmentId}/attachments`));
 }
 
 export async function seedForms(): Promise<void> {
